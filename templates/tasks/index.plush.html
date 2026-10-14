@@ -3,6 +3,9 @@
   <p class="list-count">
     <%= len(tasks) %> <%= if (len(tasks) == 1) { %>tarea en tu lista<% } else { %>tareas en tu lista<% } %>
   </p>
+  <p class="list-count pending-count">
+    <% let pending = tasks.PendingCount() %><%= if (pending == 0) { %>No quedan tareas pendientes<% } else if (pending == 1) { %>Queda 1 tarea pendiente<% } else { %>Quedan <%= pending %> tareas pendientes<% } %>
+  </p>
 </header>
 
 <section aria-labelledby="list-heading">

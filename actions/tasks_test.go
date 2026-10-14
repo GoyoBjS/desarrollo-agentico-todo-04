@@ -13,6 +13,59 @@ func (as *ActionSuite) Test_TasksIndex_EmptyState() {
 	res := as.HTML("/").Get()
 	as.Equal(200, res.Code)
 	as.Contains(res.Body.String(), "No hay tareas todavía")
+	as.Contains(res.Body.String(), "No quedan tareas pendientes")
+}
+
+func (as *ActionSuite) Test_TasksIndex_PendingCount_Singular() {
+	for _, task := range []*models.Task{
+		{Title: "Pendiente"},
+		{Title: "Hecha", Completed: true},
+	} {
+		verrs, err := as.DB.ValidateAndCreate(task)
+		as.NoError(err)
+		as.False(verrs.HasAny())
+	}
+
+	res := as.HTML("/").Get()
+	as.Equal(200, res.Code)
+	body := res.Body.String()
+	as.Contains(body, "Queda 1 tarea pendiente")
+	as.NotContains(body, "Quedan")
+	as.NotContains(body, "No quedan")
+}
+
+func (as *ActionSuite) Test_TasksIndex_PendingCount_NoneWhenAllCompleted() {
+	for _, title := range []string{"Hecha uno", "Hecha dos"} {
+		verrs, err := as.DB.ValidateAndCreate(&models.Task{Title: title, Completed: true})
+		as.NoError(err)
+		as.False(verrs.HasAny())
+	}
+
+	res := as.HTML("/").Get()
+	as.Equal(200, res.Code)
+	body := res.Body.String()
+	as.Contains(body, "No quedan tareas pendientes")
+	as.NotContains(body, "Queda 1")
+	as.NotContains(body, "Quedan 2")
+}
+
+func (as *ActionSuite) Test_TasksIndex_PendingCount_FollowsToggle() {
+	as.LoadFixture("tres tareas")
+	task := &models.Task{}
+	as.NoError(as.DB.Where("title = ?", "Comprar material de oficina").First(task))
+
+	res := as.HTML("/").Get()
+	as.Contains(res.Body.String(), "Quedan 2 tareas pendientes")
+
+	res = as.HTML("/tasks/%s/toggle", task.ID).Put(url.Values{})
+	as.Equal(303, res.Code)
+	res = as.HTML("/").Get()
+	as.Contains(res.Body.String(), "Queda 1 tarea pendiente")
+
+	res = as.HTML("/tasks/%s/toggle", task.ID).Put(url.Values{})
+	as.Equal(303, res.Code)
+	res = as.HTML("/").Get()
+	as.Contains(res.Body.String(), "Quedan 2 tareas pendientes")
 }
 
 func (as *ActionSuite) Test_TasksIndex_ListsTasks() {
@@ -26,6 +79,7 @@ func (as *ActionSuite) Test_TasksIndex_ListsTasks() {
 	as.Contains(body, "Llamar al gestor")
 	as.Contains(body, "Publicar la oferta de empleo")
 	as.Contains(body, "Completada")
+	as.Contains(body, "Quedan 2 tareas pendientes")
 }
 
 func (as *ActionSuite) Test_TasksCreate_Valid() {
@@ -43,6 +97,7 @@ func (as *ActionSuite) Test_TasksCreate_EmptyTitle_Invalid() {
 	res := as.HTML("/tasks").Post(&models.Task{Title: ""})
 	as.Equal(422, res.Code)
 	as.Contains(res.Body.String(), "El título es obligatorio.")
+	as.Contains(res.Body.String(), "No quedan tareas pendientes")
 
 	count, err := as.DB.Count(&models.Task{})
 	as.NoError(err)
