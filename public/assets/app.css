@@ -121,12 +121,50 @@ h1 {
 
 .task {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-columns: 32px 44px minmax(0, 1fr) auto;
   align-items: start;
   column-gap: 0.3rem;
   min-height: 61px;
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--color-border);
+}
+
+.task-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: start;
+  width: 32px;
+  min-height: 44px;
+  padding: 0;
+  font: inherit;
+  color: var(--color-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.task-handle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.task-handle:hover {
+  color: var(--color-text);
+  background: #f2f2ee;
+}
+
+.task-dragging {
+  background: #f7f7f5;
+  opacity: 0.85;
+  cursor: grabbing;
+  user-select: none;
+}
+
+.task-dragging .task-handle {
+  cursor: grabbing;
 }
 
 .task-title {
@@ -434,7 +472,11 @@ input:focus-visible {
   }
 
   .task {
-    grid-template-columns: 36px minmax(0, 1fr) auto;
+    grid-template-columns: 28px 36px minmax(0, 1fr) auto;
+  }
+
+  .task-handle {
+    width: 28px;
   }
 
   .task-toggle-button,

@@ -2,6 +2,7 @@ package actions
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"todo/models"
@@ -16,7 +17,7 @@ func TasksIndex(c buffalo.Context) error {
 	tx := c.Value("tx").(*pop.Connection)
 
 	tasks := models.Tasks{}
-	if err := tx.Order("created_at asc, id asc").All(&tasks); err != nil {
+	if err := tx.Order(models.TaskOrder).All(&tasks); err != nil {
 		return err
 	}
 
@@ -43,7 +44,7 @@ func TasksCreate(c buffalo.Context) error {
 
 	if verrs.HasAny() {
 		tasks := models.Tasks{}
-		if err := tx.Order("created_at asc, id asc").All(&tasks); err != nil {
+		if err := tx.Order(models.TaskOrder).All(&tasks); err != nil {
 			return err
 		}
 
@@ -88,7 +89,7 @@ func TasksUpdate(c buffalo.Context) error {
 	}
 	task.Title = strings.TrimSpace(input.Title)
 
-	verrs, err := tx.ValidateAndUpdate(task)
+	verrs, err := tx.ValidateAndUpdate(task, "position")
 	if err != nil {
 		return err
 	}
@@ -112,11 +113,33 @@ func TasksToggle(c buffalo.Context) error {
 	}
 
 	task.Completed = !task.Completed
-	if err := tx.Update(task); err != nil {
+	if err := tx.Update(task, "position"); err != nil {
 		return err
 	}
 
 	return c.Redirect(http.StatusSeeOther, "/")
+}
+
+// TasksMove mueve una tarea a otra posición de la lista y guarda el nuevo orden.
+func TasksMove(c buffalo.Context) error {
+	tx := c.Value("tx").(*pop.Connection)
+
+	task := &models.Task{}
+	if err := tx.Find(task, c.Param("task_id")); err != nil {
+		return c.Error(http.StatusNotFound, err)
+	}
+
+	position, err := strconv.Atoi(strings.TrimSpace(c.Param("position")))
+	if err != nil {
+		return c.Error(http.StatusUnprocessableEntity, err)
+	}
+
+	if err := models.MoveTask(tx, task, position); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // TasksDestroy elimina una tarea.

@@ -237,3 +237,138 @@ func (as *ActionSuite) Test_TasksUpdate_InvalidID() {
 	res := as.HTML("/tasks/no-es-un-uuid").Put(url.Values{"title": {"Título nuevo"}})
 	as.Equal(404, res.Code)
 }
+
+func (as *ActionSuite) createTasks(titles ...string) []*models.Task {
+	tasks := make([]*models.Task, 0, len(titles))
+	for _, title := range titles {
+		task := &models.Task{Title: title}
+		verrs, err := as.DB.ValidateAndCreate(task)
+		as.NoError(err)
+		as.False(verrs.HasAny())
+		tasks = append(tasks, task)
+	}
+	return tasks
+}
+
+func (as *ActionSuite) orderedTitles() []string {
+	tasks := models.Tasks{}
+	as.NoError(as.DB.Order(models.TaskOrder).All(&tasks))
+	titles := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		titles = append(titles, task.Title)
+	}
+	return titles
+}
+
+func (as *ActionSuite) moveTask(task *models.Task, position string) int {
+	res := as.HTML("/tasks/%s/position", task.ID).Put(url.Values{"position": {position}})
+	return res.Code
+}
+
+func (as *ActionSuite) Test_TasksIndex_OrdersByPosition() {
+	for _, task := range []*models.Task{
+		{Title: "Tarea en segundo lugar", Position: 2},
+		{Title: "Tarea en primer lugar", Position: 1},
+	} {
+		verrs, err := as.DB.ValidateAndCreate(task)
+		as.NoError(err)
+		as.False(verrs.HasAny())
+	}
+
+	res := as.HTML("/").Get()
+	as.Equal(200, res.Code)
+	body := res.Body.String()
+	first := strings.Index(body, "Tarea en primer lugar")
+	second := strings.Index(body, "Tarea en segundo lugar")
+	as.NotEqual(-1, first)
+	as.NotEqual(-1, second)
+	as.Less(first, second)
+}
+
+func (as *ActionSuite) Test_TasksIndex_RendersMoveControls() {
+	task := as.createTasks("Tarea movible")[0]
+
+	res := as.HTML("/").Get()
+	as.Equal(200, res.Code)
+	body := res.Body.String()
+	as.Contains(body, "Mover tarea: Tarea movible")
+	as.Contains(body, `action="/tasks/`+task.ID.String()+`/position"`)
+	as.Contains(body, "data-task-handle")
+}
+
+func (as *ActionSuite) Test_TasksMove_PersistsOrder() {
+	tasks := as.createTasks("Tarea A", "Tarea B", "Tarea C")
+
+	as.Equal(204, as.moveTask(tasks[2], "1"))
+	as.Equal([]string{"Tarea C", "Tarea A", "Tarea B"}, as.orderedTitles())
+
+	res := as.HTML("/").Get()
+	as.Equal(200, res.Code)
+	body := res.Body.String()
+	as.Less(strings.Index(body, "Tarea C"), strings.Index(body, "Tarea A"))
+}
+
+func (as *ActionSuite) Test_TasksMove_CompletedTask() {
+	as.createTasks("Tarea A", "Tarea B")
+	done := &models.Task{Title: "Tarea completada", Completed: true}
+	verrs, err := as.DB.ValidateAndCreate(done)
+	as.NoError(err)
+	as.False(verrs.HasAny())
+
+	as.Equal(204, as.moveTask(done, "1"))
+	as.Equal([]string{"Tarea completada", "Tarea A", "Tarea B"}, as.orderedTitles())
+
+	as.NoError(as.DB.Reload(done))
+	as.True(done.Completed)
+	as.Equal(1, done.Position)
+}
+
+func (as *ActionSuite) Test_TasksMove_InvalidPosition() {
+	tasks := as.createTasks("Tarea A", "Tarea B", "Tarea C")
+
+	as.Equal(422, as.moveTask(tasks[2], "abc"))
+	as.Equal([]string{"Tarea A", "Tarea B", "Tarea C"}, as.orderedTitles())
+}
+
+func (as *ActionSuite) Test_TasksMove_NotFound() {
+	res := as.HTML("/tasks/%s/position", uuid.Must(uuid.NewV4())).Put(url.Values{"position": {"1"}})
+	as.Equal(404, res.Code)
+}
+
+func (as *ActionSuite) Test_TasksMove_InvalidID() {
+	res := as.HTML("/tasks/no-es-un-uuid/position").Put(url.Values{"position": {"1"}})
+	as.Equal(404, res.Code)
+}
+
+func (as *ActionSuite) Test_TasksCreate_AppendsAtEndAfterMove() {
+	tasks := as.createTasks("Tarea A", "Tarea B", "Tarea C")
+	as.Equal(204, as.moveTask(tasks[2], "1"))
+
+	res := as.HTML("/tasks").Post(&models.Task{Title: "Tarea D"})
+	as.Equal(303, res.Code)
+	as.Equal([]string{"Tarea C", "Tarea A", "Tarea B", "Tarea D"}, as.orderedTitles())
+}
+
+func (as *ActionSuite) Test_TasksToggle_KeepsPosition() {
+	tasks := as.createTasks("Tarea A", "Tarea B", "Tarea C")
+	as.Equal(204, as.moveTask(tasks[2], "1"))
+
+	res := as.HTML("/tasks/%s/toggle", tasks[2].ID).Put(url.Values{})
+	as.Equal(303, res.Code)
+	res = as.HTML("/tasks/%s/toggle", tasks[2].ID).Put(url.Values{})
+	as.Equal(303, res.Code)
+
+	as.NoError(as.DB.Reload(tasks[2]))
+	as.Equal(1, tasks[2].Position)
+	as.Equal([]string{"Tarea C", "Tarea A", "Tarea B"}, as.orderedTitles())
+}
+
+func (as *ActionSuite) Test_TasksUpdate_KeepsPosition() {
+	tasks := as.createTasks("Tarea A", "Tarea B")
+	as.Equal(204, as.moveTask(tasks[1], "1"))
+
+	res := as.HTML("/tasks/%s", tasks[1].ID).Put(url.Values{"title": {"Tarea B editada"}})
+	as.Equal(303, res.Code)
+
+	as.Equal([]string{"Tarea B editada", "Tarea A"}, as.orderedTitles())
+}
